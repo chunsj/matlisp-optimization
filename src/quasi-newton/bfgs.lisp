@@ -1,18 +1,24 @@
 (in-package #:bfgs)
 (named-readtables:in-readtable :infix-dispatch-table)
 
-(define-condition bfgs-error (error)
+(define-condition bfgs-warning (warning)
   ((message :initarg :message))
   (:report (λ (c stream) (when (slot-boundp c 'message)	(format stream "~a~%" (slot-value c 'message))))))
 
-;;Flip Δx Δ∂f for Hessian update.
+;;Flip Δx Δ∂f for inverse Hessian update. The default is infact the DFP update.
 (defun update! (Δx Δ∂f Bkp &optional (r 1d-6) &aux (Δx.Δ∂f (dot Δx Δ∂f)))
   ;;B^+ = P' * B * P + rho .* Δ∂f ⊗ Δ∂f
   ;;rho = 1/(Δx · Δ∂f)
   ;;P = (id - rho .* Δx ⊗ Δ∂f)
-  (assert (< r Δx.Δ∂f) nil 'bfgs-error)
-  (let ((rho (/ Δx.Δ∂f)) (B·Δx (gem 1 Bkp Δx nil nil)))
-    (ger! (* (1+ (* (dot Δx B·Δx) rho)) rho) Δ∂f Δ∂f (ger! (- rho) Δ∂f B·Δx (ger! (- rho) B·Δx Δ∂f Bkp)))))
+  (tagbody
+   main
+     (restart-case (unless (< r Δx.Δ∂f) (warn 'bfgs-warning :message "non positive-definite update. skipping...") (go end))
+       (continue () (go bfgs)))
+   bfgs
+     (let ((rho (/ Δx.Δ∂f)) (B·Δx (gem 1 Bkp Δx nil nil)))
+       (ger! (* (1+ (* (dot Δx B·Δx) rho)) rho) Δ∂f Δ∂f (ger! (- rho) Δ∂f B·Δx (ger! (- rho) B·Δx Δ∂f Bkp))))
+   end)
+  Bkp)
 
 ;;
 (defun %lbfgs-query (q0 buf &optional B0 &aux (q (copy q0)))
@@ -31,12 +37,18 @@
       q)))
 
 (defun %lbfgs-update! (Δx Δ∂f buf &optional push? (r 1d-6) &aux (Δx·Δ∂f (dot Δx Δ∂f)))
-  (assert (< r Δx·Δ∂f) nil 'bfgs-error)
-  (let* ((lbuf (if push? (dlist:dpush (list (zeros (dimensions Δx) (class-of Δx)) (zeros (dimensions Δ∂f) (class-of Δ∂f))) buf) (dlist:drdc buf)))
-	 (bcon (dlist:dcar lbuf)))
-    (copy! Δx (first bcon)) (copy! Δ∂f (second bcon))
-    (setf (cddr bcon) (/ Δx·Δ∂f))
-    lbuf))
+  (tagbody
+   main
+     (restart-case (unless (< r Δx·Δ∂f) (warn 'bfgs-warning :message "non positive-definite update. skipping...") (go end))
+       (continue () (go bfgs)))
+   bfgs
+     (let* ((lbuf (if push? (dlist:dpush (list (zeros (dimensions Δx) (class-of Δx)) (zeros (dimensions Δ∂f) (class-of Δ∂f))) buf) (dlist:drdc buf)))
+	    (bcon (dlist:dcar lbuf)))
+       (copy! Δx (first bcon)) (copy! Δ∂f (second bcon))
+       (setf (cddr bcon) (/ Δx·Δ∂f)
+	     buf lbuf))
+   end)
+  buf)
 
 (defclass lbfgs ()
   ((buffer :initform nil) (B0 :initform nil) (eps :initarg :eps :initform 1d-6)
@@ -55,59 +67,21 @@
       (incf #i(lbfgs.rank)))
     lbfgs))
 
-#+nil
-(let ((lbfgs (make-instance 'lbfgs :n 10))
-      (A (randn '(10 10)))
-      (x (randn 10)))
-  (let ((y (randn 10))) (l-update! y #i(A * y) lbfgs))
-  (l-update! x #i(A * x) lbfgs)
-  (norm (t:- #i(A * x) (l-query x lbfgs))))
+;;Tests
+(5am:test bfgs-test
+  (let ((B (eye '(10 10)))
+	(A (psd-proj (randn '(10 10))))
+	(x (randn 10)))
+    (handler-bind ((bfgs-warning #'(lambda (c) (invoke-restart 'continue))))
+      (let ((y (randn 10))) (update! y #i(A * y) B))
+      (update! x #i(A * x) B)
+      (5am:is (< (norm #i(A * x - B * x)) (* 100 double-float-epsilon))))))
 
-#+nil
-(let ((B (eye '(10 10)))
-      (A (psd-proj (randn '(10 10))))
-      (x (randn 10)))
-  (let ((y (randn 10))) (update! y #i(A * y) B))
-  (update! x #i(A * x) B)
-  (norm #i(A * x - B * x)))
-
-#+nil
-(defun lbfgs-descent (x0 func &key (atol 1d-6) (max-iterations 100) (buf-size 10))
-  (let ((xk (copy x0)) (tk 1d0)
-	(yk (zeros (dims x0))) (dk (zeros (dims x0)))
-	(buf nil)
-	(buf-count 0))
-    (values xk
-	    (iter (for it from 0 below max-iterations)
-		  (multiple-value-bind (f df) (funcall func xk 1)
-		    (print (list f (norm df) tk))
-		    (when (< (norm df) atol) (finish))
-		    (when (> it 0)
-		      (setf buf (lbfgs-update! (scal! tk dk) (axpy! 1 df yk) buf (when (< buf-count buf-size) (incf buf-count)))))
-		    (lbfgs-query! (progn (copy! df dk) (scal! -1 dk)) buf)
-		    (setq tk (nth-value 1 (backtracking-linesearch! xk dk f (dot dk df) func :t0 1d0 :c 0.1 :rho 0.5 :max-iterations 25)))
-		    (copy! df yk) (scal! -1 yk))
-		  (finally (when (= it max-iterations)
-			     (format t "Exceeded max-iterations.~%"))
-			   (return it))))))
-
-#+nil
-(with-optimization (:debug 3)
-  (defun bfgs-descent (x0 func &key (atol 1d-6) (max-iterations 100))
-    (let ((xk (copy x0)) (tk 1d0)
-	  (yk (zeros (dims x0))) (dk (zeros (dims x0)))
-	  (Hk (eye (make-list 2 :initial-element (aref (dimensions x0) 0))))
-	  (niters 0))
-      (tagbody start
-	 (iter (for it from 0 below max-iterations)
-	       (multiple-value-bind (f df) (funcall func xk 1)
-		 ;;(print (list f (norm df)))
-		 (when (< (norm df) atol) (finish))
-		 (when (> it 0) (bfgs-update! tk dk (axpy! 1 df yk) Hk))
-		 (setq tk (nth-value 1 (backtracking-linesearch! xk (gemv! -1 Hk df 0 dk) f (dot dk df) func :t0 1d0 :c 0.1 :rho 0.5 :max-iterations 10)))
-		 (copy! df yk) (scal! -1 yk))
-	       (finally	(incf niters it)
-			(when (= it max-iterations)
-			  (restart-case (warn 'exceeded-maximum-iterations :message "BFGS exceeded max-iterations.")
-			    (continue-with-optimization? (answer) (when answer (go start))))))))
-      (values xk niters))))
+(5am:test lbfgs-test
+  (let ((lbfgs (make-instance 'lbfgs :n 10))
+	(A (psd-proj (randn '(10 10))))
+	(x (randn 10)))
+    (handler-bind ((bfgs-warning #'(lambda (c) (invoke-restart 'continue))))
+      (let ((y (randn 10))) (l-update! y #i(A * y) lbfgs))
+      (l-update! x #i(A * x) lbfgs)
+      (5am:is (< (norm (t:- #i(A * x) (l-query x lbfgs))) (* 100 double-float-epsilon))))))

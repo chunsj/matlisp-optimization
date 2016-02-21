@@ -4,7 +4,7 @@
   :author "Akshay Srinivasan <akshays@cs.washington.edu>"
   :licence "BSD-2-clause"
   :description "Optimization package for Matlisp"
-  :depends-on (#:matlisp)
+  :depends-on (#:matlisp #:fiveam)
   :serial t
   :components  
   ((:module "package-declaration" :pathname "src" :components ((:file "packages")))
