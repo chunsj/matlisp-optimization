@@ -15,7 +15,7 @@
 (defpackage "MATLISP-OPTIMIZATION"
   (:nicknames #:opt)
   (:import-from #:λ-reader #:λ)
-  (:use :cl :matlisp :matlisp-utilities #:iterate)
+  (:use :cl :matlisp :matlisp-utilities #:iterate #:trivia)
   (:export #:backtracking-linesearch))
 
 (defpackage "MATLISP-OPTIMIZATION/TESTS"
