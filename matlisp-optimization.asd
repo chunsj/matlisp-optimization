@@ -2,7 +2,7 @@
   :name "matlisp-optimization"
   :version "0.1"
   :author "Akshay Srinivasan <akshays@cs.washington.edu>"
-  :licence "BSD-2-clause"
+  :licence "LLGPL, see LICENSE"
   :description "Optimization package for Matlisp"
   :depends-on (#:matlisp #:fiveam)
   :serial t
