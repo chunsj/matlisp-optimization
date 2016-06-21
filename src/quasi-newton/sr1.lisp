@@ -42,19 +42,17 @@
 
 (defclass lsr1 ()
   ((buffer :initform nil) (B0 :initform nil) (eps :initarg :eps :initform 1d-6)
-   (rank :initform 0) (n :initarg :n)))
+   (size :initform 0) (maximum-size :initarg :maximum-size)))
 
-(defun l-query (Δx lsr1)
+(defun l-query! (Δx lsr1)
   (declare (type lsr1 lsr1) (type (and dense-tensor tensor-vector) Δx))
   (%lsr1-query Δx #i(lsr1.buffer) #i(lsr1.B0)))
 
 (defun l-update! (Δx Δ∂f lsr1)
   (declare (type lsr1 lsr1)
 	   (type (and dense-tensor tensor-vector) Δx Δ∂f))
-  (let ((buffer+ (%lsr1-update! Δx Δ∂f #i(lsr1.buffer) (if (< #i(lsr1.rank) #i(lsr1.n)) t) #i(lsr1.B0) #i(lsr1.eps))))
-    (when buffer+
-      (setf #i(lsr1.buffer) buffer+)
-      (incf #i(lsr1.rank)))
+  (let ((buffer+ (%lsr1-update! Δx Δ∂f #i(lsr1.buffer) (when (< #i(lsr1.size) #i(lsr1.\maximum-size)) (incf #i(lsr1.size))) #i(lsr1.B0) #i(lsr1.eps))))
+    (setf #i(lsr1.buffer) buffer+)
     lsr1))
 
 ;;Tests
@@ -68,10 +66,10 @@
       (5am:is (< (norm #i(A * x - B * x)) (* 100 double-float-epsilon))))))
 
 (5am:test lsr1-test
-  (let ((lsr1 (make-instance 'lsr1 :n 10))
+  (let ((lsr1 (make-instance 'lsr1 :maximum-size 10))
 	(A (psd-proj (randn '(10 10))))
 	(x (randn 10)))
-    (handler-bind ((sr1-warning #'(lambda (c) (invoke-restart 'continue))))
+    (handler-bind ((sr1-warning #'(lambda () (invoke-restart 'continue))))
       (let ((y (randn 10))) (l-update! y #i(A * y) lsr1))
       (l-update! x #i(A * x) lsr1)
       (5am:is (< (norm (t:- #i(A * x) (l-query x lsr1))) (* 100 double-float-epsilon))))))

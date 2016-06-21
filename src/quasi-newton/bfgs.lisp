@@ -52,7 +52,7 @@
 
 (defclass lbfgs ()
   ((buffer :initform nil) (B0 :initform nil) (eps :initarg :eps :initform 1d-6)
-   (rank :initform 0) (n :initarg :n)))
+   (size :initform 0) (maximum-size :initarg :maximum-size)))
 
 (defun l-query (Δx lbfgs)
   (declare (type lbfgs lbfgs) (type (and dense-tensor tensor-vector) Δx))
@@ -61,10 +61,8 @@
 (defun l-update! (Δx Δ∂f lbfgs)
   (declare (type lbfgs lbfgs)
 	   (type (and dense-tensor tensor-vector) Δx Δ∂f))
-  (let ((buffer+ (%lbfgs-update! Δx Δ∂f #i(lbfgs.buffer) (if (< #i(lbfgs.rank) #i(lbfgs.n)) t) #i(lbfgs.eps))))
-    (when buffer+
-      (setf #i(lbfgs.buffer) buffer+)
-      (incf #i(lbfgs.rank)))
+  (let ((buffer+ (%lbfgs-update! Δx Δ∂f #i(lbfgs.buffer) (when (< #i(lbfgs.size) #i(lbfgs.\maximum-size)) (incf #i(lbfgs.size))) #i(lbfgs.eps))))
+    (setf #i(lbfgs.buffer) buffer+)
     lbfgs))
 
 ;;Tests
@@ -78,10 +76,10 @@
       (5am:is (< (norm #i(A * x - B * x)) (* 100 double-float-epsilon))))))
 
 (5am:test lbfgs-test
-  (let ((lbfgs (make-instance 'lbfgs :n 10))
+  (let ((lbfgs (make-instance 'lbfgs :maximum-size 5))
 	(A (psd-proj (randn '(10 10))))
 	(x (randn 10)))
     (handler-bind ((bfgs-warning #'(lambda (c) (invoke-restart 'continue))))
       (let ((y (randn 10))) (l-update! y #i(A * y) lbfgs))
       (l-update! x #i(A * x) lbfgs)
-      (5am:is (< (norm (t:- #i(A * x) (l-query x lbfgs))) (* 100 double-float-epsilon))))))
+      (5am:is (< (norm (t:- #i(A * x) (l-query! (copy x) lbfgs))) (* 100 double-float-epsilon))))))

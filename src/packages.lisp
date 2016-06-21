@@ -16,7 +16,9 @@
   (:nicknames #:opt)
   (:import-from #:λ-reader #:λ)
   (:use :cl :matlisp :matlisp-utilities #:iterate #:trivia)
-  (:export #:backtracking-linesearch))
+  (:export #:exceeded-maximum-iterations
+	   #:backtracking-update #:quadratic-update #:cubic-update #:poly-update
+	   #:bracketing-linesearch #:bfgs-descent #:lbfgs-descent))
 
 (defpackage "MATLISP-OPTIMIZATION/TESTS"
   (:import-from #:λ-reader #:λ)

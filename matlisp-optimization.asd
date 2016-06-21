@@ -10,5 +10,6 @@
   ((:module "package-declaration" :pathname "src" :components ((:file "packages")))
    (:module "src" :depends-on ("package-declaration")
 	    :components
-	    ((:module "quasi-newton" :components ((:file "bfgs") (:file "sr1"))))
-	    )))
+	    ((:module "quasi-newton" :components ((:file "bfgs") (:file "sr1")))
+	     (:file "linesearch")
+	     (:file "bfgs" :depends-on ("quasi-newton" "linesearch"))))))
